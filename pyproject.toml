@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "contrastive-diffusion"
+version = "0.1.0"
+description = "Contrastive diffusion experiments"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "jax",
+    "jaxlib",
+    "numpy",
+    "optax",
+    "einops",
+    "matplotlib",
+    "tqdm",
+]
+
+[tool.setuptools]
+packages = ["diffuse"]
+
+[tool.setuptools.package-data]
+diffuse = []
