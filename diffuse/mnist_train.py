@@ -120,6 +120,10 @@ params = init_params
 opt_state = optimizer.init(params)
 ema_state = ema_kernel.init(params)
 
+print("default_backend:", jax.default_backend())
+print("devices:", jax.devices())
+print("gpu devices:", jax.devices("gpu"))
+
 global_step = 0
 
 for epoch in range(n_epochs):
