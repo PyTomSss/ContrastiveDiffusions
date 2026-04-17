@@ -1,27 +1,28 @@
+import os
+import gzip
+import struct
+from functools import partial
+
+import einops
 import jax
 import jax.numpy as jnp
-import einops
+import numpy as np
+import optax
+import wandb
+from tqdm import tqdm
+
 from diffuse.unet import UNet
 from diffuse.score_matching import score_match_loss
 from diffuse.sde import SDE, LinearSchedule
-from functools import partial
-import numpy as np
-import optax
-from tqdm import tqdm
-import wandb
-import gzip
-import struct
 
 
-#data = jnp.load("dataset/mnist.npz")
 def load_mnist_images(path):
     open_fn = gzip.open if path.endswith(".gz") else open
     with open_fn(path, "rb") as f:
         magic, n, rows, cols = struct.unpack(">IIII", f.read(16))
         if magic != 2051:
             raise ValueError(f"Unexpected magic number for images: {magic}")
-        data = np.frombuffer(f.read(), dtype=np.uint8)
-        data = data.reshape(n, rows, cols)
+        data = np.frombuffer(f.read(), dtype=np.uint8).reshape(n, rows, cols)
     return data
 
 
@@ -35,17 +36,54 @@ def load_mnist_labels(path):
     return data
 
 
-x_train = load_mnist_images("/vols/bitbucket/kebl8577/datasets/data/MNIST/raw/train-images-idx3-ubyte.gz")
-y_train = load_mnist_labels("/vols/bitbucket/kebl8577/datasets/data/MNIST/raw/train-labels-idx1-ubyte.gz")
+def get_array_device(arr):
+    try:
+        return arr.device
+    except Exception:
+        try:
+            return arr.devices()
+        except Exception:
+            return "unknown"
 
-# normalisation
+
+# -----------------------
+# Device setup
+# -----------------------
+gpu_devices = jax.devices("gpu")
+if len(gpu_devices) > 0:
+    device = gpu_devices[0]
+    print(f"Using GPU: {device}")
+else:
+    device = jax.devices("cpu")[0]
+    print("WARNING: No GPU detected by JAX. Falling back to CPU.")
+    print("default_backend:", jax.default_backend())
+    print("devices:", jax.devices())
+
+print("default_backend:", jax.default_backend())
+print("devices:", jax.devices())
+print("gpu devices:", gpu_devices)
+
+# Si tu veux stopper net quand il n'y a pas de GPU, décommente :
+# if len(gpu_devices) == 0:
+#     raise RuntimeError("JAX ne détecte aucun GPU. Vérifie l'installation de jax/jaxlib CUDA.")
+
+# -----------------------
+# Data loading
+# -----------------------
+x_train = load_mnist_images(
+    "/vols/bitbucket/kebl8577/datasets/data/MNIST/raw/train-images-idx3-ubyte.gz"
+)
+y_train = load_mnist_labels(
+    "/vols/bitbucket/kebl8577/datasets/data/MNIST/raw/train-labels-idx1-ubyte.gz"
+)
+
 x_train = x_train.astype(np.float32) / 255.0
 
-# conversion JAX
-xs = jnp.array(x_train)
-ys = jnp.array(y_train)
+# conversion JAX + placement explicite
+xs = jax.device_put(jnp.array(x_train), device)
+ys = jax.device_put(jnp.array(y_train), device)
 key = jax.random.PRNGKey(0)
-#xs = data["X"]
+key = jax.device_put(key, device)
 
 batch_size = 256
 n_epochs = 3500
@@ -53,18 +91,24 @@ n_t = 256
 tf = 2.0
 dt = tf / n_t
 lr = 2e-4
+log_every = 50
 
 xs = jax.random.permutation(key, xs, axis=0)
 data = einops.rearrange(xs, "b h w -> b h w 1")
+data = jax.device_put(data, device)
 shape_sample = data.shape[1:]
+
+print("data device:", get_array_device(data))
 
 beta = LinearSchedule(b_min=0.02, b_max=5.0, t0=0.0, T=2.0)
 sde = SDE(beta)
 
 nn_unet = UNet(dt, 64, upsampling="pixel_shuffle")
-init_params = nn_unet.init(
-    key, jnp.ones((batch_size, *shape_sample)), jnp.ones((batch_size,))
-)
+
+x_init = jax.device_put(jnp.ones((batch_size, *shape_sample), dtype=jnp.float32), device)
+t_init = jax.device_put(jnp.ones((batch_size,), dtype=jnp.float32), device)
+
+init_params = nn_unet.init(key, x_init, t_init)
 
 
 def weight_fun(t):
@@ -94,9 +138,6 @@ def step(key, params, opt_state, ema_state, batch):
     return params, opt_state, ema_state, val_loss, ema_params
 
 
-# -----------------------
-# W&B init
-# -----------------------
 wandb.init(
     project="mnist-diffusion",
     name="unet_score_matching",
@@ -113,6 +154,8 @@ wandb.init(
         "grad_clip": 1.0,
         "optimizer": "adam",
         "scheduler": "cosine_decay",
+        "jax_backend": jax.default_backend(),
+        "device": str(device),
     },
 )
 
@@ -120,50 +163,50 @@ params = init_params
 opt_state = optimizer.init(params)
 ema_state = ema_kernel.init(params)
 
-print("default_backend:", jax.default_backend())
-print("devices:", jax.devices())
-print("gpu devices:", jax.devices("gpu"))
+first_leaf = jax.tree_util.tree_leaves(params)[0]
+print("params device:", get_array_device(first_leaf))
 
 global_step = 0
 
 for epoch in range(n_epochs):
     subkey, key = jax.random.split(key)
-    idx = jax.random.choice(
-        subkey, data.shape[0], (nsteps_per_epoch, batch_size), replace=False
-    )
+
+    # Plus simple et souvent plus efficace que random.choice(..., replace=False)
+    perm = jax.random.permutation(subkey, data.shape[0])
+    data_epoch = data[perm]
 
     p_bar = tqdm(range(nsteps_per_epoch), desc=f"Epoch {epoch}")
-    list_loss = []
+    epoch_loss_sum = 0.0
 
     for i in p_bar:
+        batch = data_epoch[i * batch_size : (i + 1) * batch_size]
+
         subkey, key = jax.random.split(key)
         params, opt_state, ema_state, val_loss, ema_params = step(
-            subkey, params, opt_state, ema_state, data[idx[i]]
+            subkey, params, opt_state, ema_state, batch
         )
 
         loss_value = float(val_loss)
-        current_lr = float(schedule(global_step))
+        epoch_loss_sum += loss_value
 
-        p_bar.set_postfix({"loss": loss_value, "lr": current_lr})
-        list_loss.append(loss_value)
-
-        # log par step
-        wandb.log(
-            {
-                "train/loss_step": loss_value,
-                "train/lr": current_lr,
-                "epoch": epoch,
-                "global_step": global_step,
-            },
-            step=global_step,
-        )
+        if global_step % log_every == 0:
+            current_lr = float(schedule(global_step))
+            p_bar.set_postfix({"loss": loss_value, "lr": current_lr})
+            wandb.log(
+                {
+                    "train/loss_step": loss_value,
+                    "train/lr": current_lr,
+                    "epoch": epoch,
+                    "global_step": global_step,
+                },
+                step=global_step,
+            )
 
         global_step += 1
 
-    mean_loss = float(np.mean(list_loss))
+    mean_loss = epoch_loss_sum / nsteps_per_epoch
     print(f"epoch=: {epoch} | mean_loss=: {mean_loss}")
 
-    # log par epoch
     wandb.log(
         {
             "train/loss_epoch": mean_loss,
