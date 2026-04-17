@@ -9,11 +9,43 @@ import numpy as np
 import optax
 from tqdm import tqdm
 import wandb
+import gzip
+import struct
 
 
-data = jnp.load("dataset/mnist.npz")
+#data = jnp.load("dataset/mnist.npz")
+def load_mnist_images(path):
+    open_fn = gzip.open if path.endswith(".gz") else open
+    with open_fn(path, "rb") as f:
+        magic, n, rows, cols = struct.unpack(">IIII", f.read(16))
+        if magic != 2051:
+            raise ValueError(f"Unexpected magic number for images: {magic}")
+        data = np.frombuffer(f.read(), dtype=np.uint8)
+        data = data.reshape(n, rows, cols)
+    return data
+
+
+def load_mnist_labels(path):
+    open_fn = gzip.open if path.endswith(".gz") else open
+    with open_fn(path, "rb") as f:
+        magic, n = struct.unpack(">II", f.read(8))
+        if magic != 2049:
+            raise ValueError(f"Unexpected magic number for labels: {magic}")
+        data = np.frombuffer(f.read(), dtype=np.uint8)
+    return data
+
+
+x_train = load_mnist_images("/vols/bitbucket/kebl8577/datasets/data/MNIST/train-images-idx3-ubyte.gz")
+y_train = load_mnist_labels("/vols/bitbucket/kebl8577/datasets/data/MNIST/train-labels-idx1-ubyte.gz")
+
+# normalisation
+x_train = x_train.astype(np.float32) / 255.0
+
+# conversion JAX
+xs = jnp.array(x_train)
+ys = jnp.array(y_train)
 key = jax.random.PRNGKey(0)
-xs = data["X"]
+#xs = data["X"]
 
 batch_size = 256
 n_epochs = 3500
