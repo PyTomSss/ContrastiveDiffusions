@@ -35,8 +35,8 @@ def load_mnist_labels(path):
     return data
 
 
-x_train = load_mnist_images("/vols/bitbucket/kebl8577/datasets/data/MNIST/train-images-idx3-ubyte.gz")
-y_train = load_mnist_labels("/vols/bitbucket/kebl8577/datasets/data/MNIST/train-labels-idx1-ubyte.gz")
+x_train = load_mnist_images("/vols/bitbucket/kebl8577/datasets/data/MNIST/raw/train-images-idx3-ubyte.gz")
+y_train = load_mnist_labels("/vols/bitbucket/kebl8577/datasets/data/MNIST/raw/train-labels-idx1-ubyte.gz")
 
 # normalisation
 x_train = x_train.astype(np.float32) / 255.0
