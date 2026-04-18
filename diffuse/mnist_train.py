@@ -87,7 +87,8 @@ key = jax.device_put(key, device)
 
 batch_size = 256
 n_epochs = 3500
-n_t = 256
+#
+n_t = 64
 tf = 2.0
 dt = tf / n_t
 lr = 2e-4
