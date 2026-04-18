@@ -170,26 +170,24 @@ global_step = 0
 
 for epoch in range(n_epochs):
     subkey, key = jax.random.split(key)
-
-    # Plus simple et souvent plus efficace que random.choice(..., replace=False)
     perm = jax.random.permutation(subkey, data.shape[0])
-    data_epoch = data[perm]
 
+    epoch_loss_sum = jnp.array(0.0, dtype=jnp.float32)
     p_bar = tqdm(range(nsteps_per_epoch), desc=f"Epoch {epoch}")
-    epoch_loss_sum = 0.0
 
     for i in p_bar:
-        batch = data_epoch[i * batch_size : (i + 1) * batch_size]
+        idx = perm[i * batch_size : (i + 1) * batch_size]
+        batch = data[idx]
 
         subkey, key = jax.random.split(key)
         params, opt_state, ema_state, val_loss, ema_params = step(
             subkey, params, opt_state, ema_state, batch
         )
 
-        loss_value = float(val_loss)
-        epoch_loss_sum += loss_value
+        epoch_loss_sum = epoch_loss_sum + val_loss
 
         if global_step % log_every == 0:
+            loss_value = float(val_loss)
             current_lr = float(schedule(global_step))
             p_bar.set_postfix({"loss": loss_value, "lr": current_lr})
             wandb.log(
@@ -204,7 +202,7 @@ for epoch in range(n_epochs):
 
         global_step += 1
 
-    mean_loss = epoch_loss_sum / nsteps_per_epoch
+    mean_loss = float(epoch_loss_sum / nsteps_per_epoch)
     print(f"epoch=: {epoch} | mean_loss=: {mean_loss}")
 
     wandb.log(
