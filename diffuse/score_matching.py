@@ -1,3 +1,4 @@
+from build.lib.diffuse import sde
 from diffuse.sde import SDE, SDEState
 from jaxtyping import PyTreeDef, PRNGKeyArray
 import jax.numpy as jnp
@@ -34,11 +35,16 @@ def score_match_loss(
         float: The score matching loss.
 
     """
+    #key_t, key_x = jax.random.split(rng_key)
+    #n_x0 = x0_samples.shape[0]
+    # generate time samples
+    #ts = jax.random.uniform(key_t, (nt_samples - 1, 1), minval=1e-5, maxval=tf)
+    #ts = jnp.concatenate([ts, jnp.array([[tf]])], axis=0)
+
     key_t, key_x = jax.random.split(rng_key)
     n_x0 = x0_samples.shape[0]
-    # generate time samples
-    ts = jax.random.uniform(key_t, (nt_samples - 1, 1), minval=1e-5, maxval=tf)
-    ts = jnp.concatenate([ts, jnp.array([[tf]])], axis=0)
+
+    ts = jax.random.uniform(key_t, (n_x0, 1), minval=1e-5, maxval=tf)
 
     # generate samples of x_t \sim p(x_t|x_0)
     state_0 = SDEState(x0_samples, jnp.zeros((n_x0, 1)))
