@@ -237,11 +237,7 @@ for epoch in range(n_epochs):
         save_path = ckpt_dir / f"{args.checkpoint_name}_epoch_{epoch+1}.npz"
         print(f"Saving checkpoint to {save_path}")
         np.savez(save_path, params=params, ema_params=ema_params)
-    elif (epoch + 1) == 2:
-        save_path = ckpt_dir / f"{args.checkpoint_name}_epoch_{epoch+1}.npz"
-        print(f"Saving checkpoint to {save_path}")
-        np.savez(save_path, params=params, ema_params=ema_params)
-
+    
 final_path = ckpt_dir / f"{args.checkpoint_name}_final.npz"
 print(f"Saving final checkpoint to {final_path}")
 np.savez(final_path, params=params, ema_params=ema_params)

@@ -42,7 +42,8 @@ def initialize_experiment(key: PRNGKeyArray):
 
     # Initialize ScoreNetwork
     score_net = UNet(tf / n_t, 64, upsampling="pixel_shuffle")
-    nn_trained = jnp.load("ann_2999.npz", allow_pickle=True)
+    #nn_trained = jnp.load("ann_2999.npz", allow_pickle=True)
+    nn_trained = jnp.load("../run_score_matching_61004_final.npz", allow_pickle=True)
     params = nn_trained["params"].item()
 
     # Define neural network score function

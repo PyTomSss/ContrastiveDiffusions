@@ -10,7 +10,7 @@ import einops
 
 from diffuse.conditional import CondSDE
 from diffuse.sde import SDEState, euler_maryama_step_array
-from diffuse.filter import stratified
+#from diffuse.filter import stratified
 
 
 def ess(log_weights: Array) -> float:
@@ -121,8 +121,9 @@ def particle_step(
 
     ess_val = ess(log_weights)
     n_particles = sde_state.position.shape[0]
-    idx = stratified(rng_key, weights, n_particles)
-
+    #idx = stratified(rng_key, weights, n_particles)
+    idx = jax.random.choice(rng_key, jnp.arange(n_particles), shape=(n_particles,), p=weights)
+    
     return jax.lax.cond(
         (ess_val < 0.6 * n_particles) & (ess_val > 0.2 * n_particles),
         lambda x: (x[idx], weights[idx]),
