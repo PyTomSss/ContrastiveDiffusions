@@ -15,6 +15,9 @@ from diffuse.unet import UNet
 from diffuse.score_matching import score_match_loss
 from diffuse.sde import SDE, LinearSchedule
 
+import argparse
+from pathlib import Path
+
 
 def load_mnist_images(path):
     open_fn = gzip.open if path.endswith(".gz") else open
@@ -45,6 +48,20 @@ def get_array_device(arr):
         except Exception:
             return "unknown"
 
+# -----------------------
+# Argument parsing
+# -----------------------
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--project", type=str, default="mnist-diffusion")
+parser.add_argument("--run_name", type=str, default="unet_score_matching")
+parser.add_argument("--checkpoint_name", type=str, default="run_score_matching")
+parser.add_argument("--checkpoint_dir", type=str, required=True)
+args = parser.parse_args()
+
+ckpt_dir = Path(args.checkpoint_dir)
+ckpt_dir.mkdir(parents=True, exist_ok=True)
+
 
 # -----------------------
 # Device setup
@@ -62,6 +79,8 @@ else:
 print("default_backend:", jax.default_backend())
 print("devices:", jax.devices())
 print("gpu devices:", gpu_devices)
+
+
 
 # Si tu veux stopper net quand il n'y a pas de GPU, décommente :
 # if len(gpu_devices) == 0:
@@ -87,7 +106,7 @@ key = jax.device_put(key, device)
 
 batch_size = 256
 #n_epochs = 3500
-n_epochs = 501
+n_epochs = 3
 #n_t = 256
 n_t = 64
 tf = 2.0
@@ -139,10 +158,9 @@ def step(key, params, opt_state, ema_state, batch):
     ema_params, ema_state = ema_kernel.update(params, ema_state)
     return params, opt_state, ema_state, val_loss, ema_params
 
-
 wandb.init(
-    project="mnist-diffusion",
-    name="unet_score_matching",
+    project=args.project,
+    name=args.run_name,
     config={
         "batch_size": batch_size,
         "n_epochs": n_epochs,
@@ -216,7 +234,16 @@ for epoch in range(n_epochs):
     )
 
     if (epoch + 1) % 500 == 0:
-        np.savez(f"ann_{epoch}.npz", params=params, ema_params=ema_params)
+        save_path = ckpt_dir / f"{args.checkpoint_name}_epoch_{epoch+1}.npz"
+        print(f"Saving checkpoint to {save_path}")
+        np.savez(save_path, params=params, ema_params=ema_params)
+    elif (epoch + 1) == 2:
+        save_path = ckpt_dir / f"{args.checkpoint_name}_epoch_{epoch+1}.npz"
+        print(f"Saving checkpoint to {save_path}")
+        np.savez(save_path, params=params, ema_params=ema_params)
 
-np.savez("ann_end.npz", params=params, ema_params=ema_params)
+final_path = ckpt_dir / f"{args.checkpoint_name}_final.npz"
+print(f"Saving final checkpoint to {final_path}")
+np.savez(final_path, params=params, ema_params=ema_params)
+
 wandb.finish()
